@@ -20,7 +20,7 @@ El analizador integra fundamentos formales de la Teoría de la Computación: alf
 ├── README.md                # Instrucciones de ejecución y documentación
 ├── docs/
 │   ├── main.tex                 # Informe técnico (fuente LaTeX)
-│   ├── INFO1148_Tarea_C1.pdf    # Informe técnico compilado (entregable)
+│   ├── Tarea_Benavides_Patricio.pdf    # Informe técnico compilado (entregable)
 │   ├── Formato Informe Tarea.pdf        # Plantilla oficial del informe
 │   └── Tarea INFO1148 sem2_2026.pdf     # Enunciado de la tarea
 └── tests/
