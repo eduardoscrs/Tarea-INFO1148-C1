@@ -60,7 +60,7 @@ SINGLE_OPS = {
     "-": "MENOS",
     "*": "POR",
     "/": "DIVISION",
-    "\\+": "NO_UNIFICACION",
+    "\\+": "NO",
     "!": "CORTE",
     ";": "PUNTO_Y_COMA",
     ",": "COMA",
@@ -237,7 +237,10 @@ class Lexer:
             lex = m.group(0)
             for _ in lex: self.advance()
             # Detectar continuación que no puede pertenecer al número.
-            if self.current() == "." or (self.current() and (self.current().isalnum() or self.current() == "_")):
+            # Un punto solo es fin de cláusula Prolog y se deja como token PUNTO.
+            # Solo es continuación inválida si es alfanumérico/_ o punto seguido de dígito (ej. 1.2.3).
+            nxt = self.current()
+            if nxt and (nxt.isalnum() or nxt == "_" or (nxt == "." and self.peek().isdigit())):
                 while self.current() and (self.current().isalnum() or self.current() in "._"):
                     self.advance()
                 bad = self.source[start:self.i]
