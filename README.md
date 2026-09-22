@@ -19,8 +19,10 @@ El analizador integra fundamentos formales de la Teoría de la Computación: alf
 ├── lexer.py                 # Código fuente del analizador léxico
 ├── README.md                # Instrucciones de ejecución y documentación
 ├── docs/
-│   ├── informe.md           # Informe técnico en formato Markdown
-│   └── Formato Informe Tarea.pdf  # Plantilla oficial del informe
+│   ├── main.tex                 # Informe técnico (fuente LaTeX)
+│   ├── INFO1148_Tarea_C1.pdf    # Informe técnico compilado (entregable)
+│   ├── Formato Informe Tarea.pdf        # Plantilla oficial del informe
+│   └── Tarea INFO1148 sem2_2026.pdf     # Enunciado de la tarea
 └── tests/
     ├── test_lexer.py        # Suite de pruebas unitarias automatizadas (unittest)
     ├── valid.pl             # Programa Prolog completo sin errores léxicos

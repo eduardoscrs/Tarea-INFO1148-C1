@@ -1,0 +1,328 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[spanish,es-nodecimaldot,es-noshorthands,shorthands=off]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{automata,positioning,arrows}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\def\UrlBreaks{\do\/\do-\do_}
+\setlength{\emergencystretch}{3em}
+\setlength{\headheight}{15pt}
+\sloppy
+\hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, breaklinks=true}
+\definecolor{codegray}{gray}{0.95}
+\lstset{language=Python,basicstyle=\ttfamily\footnotesize,backgroundcolor=\color{codegray},frame=single,breaklines=true,columns=fullflexible,showstringspaces=false,inputencoding=utf8,extendedchars=true}
+\pagestyle{fancy}\fancyhf{}\lhead{INFO1148}\rhead{Análisis léxico Prolog}\cfoot{\thepage}
+\begin{document}
+
+% ---------------- Portada UCT ----------------
+\begin{titlepage}
+\centering
+\IfFileExists{Logo_uct_inf.pdf}{\includegraphics[width=0.32\textwidth]{Logo_uct_inf.pdf}}{\IfFileExists{logo_uct.png}{\includegraphics[width=0.32\textwidth]{logo_uct.png}}{\fbox{\parbox{0.32\textwidth}{\centering\small Logo UCT\\sube logo\_uct.pdf}}}}\par
+\vspace{1.2cm}
+{\Large UNIVERSIDAD CATÓLICA DE TEMUCO\par}
+\vspace{0.3cm}{\large Facultad de Ingeniería\par}
+\vfill
+{\LARGE\bfseries Tarea\par}
+\vspace{0.4cm}{\Large Análisis léxico de un subconjunto de Prolog\par}
+\vspace{0.8cm}{\large Asignatura: INFO1148\par}
+\vfill
+\begin{tabular}{>{\bfseries}r l}
+Integrantes: & Benavides Monsálvez, Patricio (Jefe de grupo)\\
+             & Escares Ortiz, Eduardo\\
+             & Ferrer Retamal, Christian\\
+Carrera: & Ingeniería Civil en Informática\\
+Docente: & Marcos Levano\\
+Fecha de entrega: & 22 de Septiembre de 2026\\
+Semestre: & Segundo semestre 2026
+\end{tabular}
+
+\end{titlepage}
+
+
+\tableofcontents
+\newpage
+
+% ---------------- Resumen ----------------
+\begin{center}
+{\Large\bfseries Análisis léxico de un subconjunto de Prolog\par}
+\end{center}
+\section*{Resumen}
+Se diseñó e implementó un analizador léxico para un subconjunto de Prolog inspirado en SWI-Prolog e ISO Prolog. El lexer recorre el fuente de izquierda a derecha, ignora layout y comentarios, reconoce átomos, variables, números enteros y reales, átomos entre comillas, cadenas, operadores de cláusula, unificación, aritméticos y control, además de delimitadores, conservando línea y columna y registrando errores recuperables. La implementación se realizó en Python 3 sin dependencias externas, aplicando máxima coincidencia y prioridad explícita para operadores compuestos como \texttt{:-}, \texttt{?-}, \texttt{=..}, \texttt{==}, \texttt{=<}, \texttt{>=}, \texttt{//} y \texttt{**}. Los signos \texttt{+} y \texttt{-} son operadores y no parte del número. El corpus incluye 20 casos válidos, 8 inválidos y 2 archivos completos. Tras corregir el tratamiento de \texttt{REAL+PUNTO}, \texttt{tests/valid.pl} produce tokens sin errores y \texttt{tests/invalid.pl} reporta 7 errores con posición.
+
+\noindent\textbf{Palabras clave:} análisis léxico, Prolog, expresiones regulares, autómatas finitos, máxima coincidencia.
+
+\section{Introducción}
+El análisis léxico es la primera fase de un procesador de lenguajes: agrupa caracteres en tokens y detecta lexemas inválidos antes de cualquier análisis sintáctico. Sin esta fase, errores como literales sin cierre o números mal formados se propagarían a etapas superiores con diagnósticos pobres.
+
+Este informe presenta el subconjunto de Prolog reconocido, su especificación con expresiones regulares, el modelado con AFN/AFD, la determinización y minimización de un caso representativo, las reglas de prioridad, el diseño del lexer en Python, la tabla de lexemas, el tratamiento de errores y el plan de pruebas con resultados.
+
+El alcance termina estrictamente en el léxico: no se valida estructura de cláusulas ni se realiza unificación o análisis semántico.
+
+\section{Objetivos}
+\subsection{Objetivo general}
+Analizar, diseñar, implementar y validar un analizador léxico para un subconjunto definido de Prolog, aplicando alfabetos, lenguajes regulares, expresiones regulares y autómatas finitos.
+
+\subsection{Objetivos específicos}
+\begin{itemize}
+\item Definir formalmente el subconjunto léxico y una expresión regular por categoría, resolviendo superposiciones.
+\item Modelar AFN/AFD de las categorías principales y mostrar determinización por subconjuntos y minimización en un caso representativo.
+\item Implementar en Python un lexer con tipo, lexema, línea, columna, tabla de lexemas y errores recuperables, con corpus reproducible de 20+8 casos y 2 archivos completos.
+\end{itemize}
+
+\section{Alcance del analizador}
+\textbf{Incluye:} átomos simples y entre comillas, variables incluida \texttt{\_}, enteros y reales con exponente, cadenas con escapes documentados, operadores \texttt{:-}, \texttt{?-}, \texttt{-->}, \texttt{=}, \texttt{\textbackslash=}, \texttt{==}, \texttt{\textbackslash==}, \texttt{=..}, \texttt{<}, \texttt{=<}, \texttt{>}, \texttt{>=}, \texttt{+}, \texttt{-}, \texttt{*}, \texttt{/}, \texttt{//}, \texttt{**}, \texttt{is}, \texttt{mod}, \texttt{\textbackslash+}, \texttt{!}, \texttt{;}, \texttt{,}, delimitadores \texttt{( ) [ ] \{ \} | .}, comentarios \texttt{\%} y \texttt{/* */}, layout con posición.
+
+\textbf{Excluye:} análisis sintáctico, árboles, validación gramatical, unificación, resolución, ámbitos y semántica. \texttt{-12} se tokeniza como \texttt{MENOS+ENTERO} por decisión explícita. Fuera de literales/comentarios se restringe a ASCII para mantener el subconjunto verificable.
+
+\section{Especificación léxica}
+Notación: \texttt{[A-Z]}, \texttt{[a-z]}, \texttt{[0-9]}, \texttt{ALNUM\_=[A-Za-z0-9\_]}. Layout y comentarios no generan tokens.
+
+\begin{table}[H]
+\centering
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{|l|l|l|l|}
+\hline
+\textbf{Token} & \textbf{Descripción / ER} & \textbf{Válidos} & \textbf{Inválidos} \\ \hline
+ATOMO & \texttt{[a-z][A-Za-z0-9\_]*} Minúscula inicial & \texttt{padre, persona\_1} & \texttt{Persona, \_x, 1abc} \\ \hline
+VARIABLE & \texttt{(?:[A-Z]|\_)[A-Za-z0-9\_]*} Mayúsc./\texttt{\_} inicial & \texttt{X, Persona, \_Tmp, \_} & \texttt{persona} \\ \hline
+ENTERO & \texttt{[0-9]+} & \texttt{0, 123} & \texttt{12a} \\ \hline
+REAL & \texttt{[0-9]+\textbackslash.[0-9]+([eE][+-]?[0-9]+)?} o \texttt{[0-9]+[eE][+-]?[0-9]+} & \texttt{3.14, 1.2e-3, 1e10} & \texttt{1., 1.2.3, 7e+} \\ \hline
+ATOMO\_COMILLAS & \texttt{'([\textasciicircum{}'\textbackslash n]|...)*'} con escapes & \texttt{'Juan Pérez', 'a+b'} & \texttt{'sin cierre} \\ \hline
+CADENA & \texttt{"([\textasciicircum{}"\textbackslash n]|...)*"} & \texttt{"Hola", "a\textbackslash nb"} & \texttt{"sin cierre} \\ \hline
+DOS\_PUNTOS\_GUION & \texttt{:-} & \texttt{:-} & \texttt{:} solo \\ \hline
+CONSULTA & \texttt{?-} & \texttt{?-} & \texttt{?} solo \\ \hline
+DCG & \texttt{-->} & \texttt{-->} & \texttt{--} \\ \hline
+IGUAL & \texttt{=} & \texttt{=} & --- \\ \hline
+DISTINTO & \texttt{\textbackslash=} & \texttt{\textbackslash=} & \texttt{\textbackslash} solo \\ \hline
+IGUAL\_ESTRICTO & \texttt{==} & \texttt{==} & \texttt{=} si se exige doble \\ \hline
+DISTINTO\_ESTRICTO & \texttt{\textbackslash==} & \texttt{\textbackslash==} & \texttt{\textbackslash=} si se exige estricto \\ \hline
+DESCOMPONE & \texttt{=..} & \texttt{=..} & \texttt{=.} \\ \hline
+MENOR / MAYOR & \texttt{<} / \texttt{>} & \texttt{<, >} & --- \\ \hline
+MENOR\_IGUAL & \texttt{=<} (no \texttt{<=}) & \texttt{=<} & \texttt{<=} \\ \hline
+MAYOR\_IGUAL & \texttt{>=} & \texttt{>=} & --- \\ \hline
+MAS / MENOS / POR / DIV & \texttt{+} \texttt{-} \texttt{*} \texttt{/} & \texttt{+ - * /} & --- \\ \hline
+DIV\_ENTERA / POTENCIA & \texttt{//} / \texttt{**} & \texttt{//, **} & \texttt{/ /, * *} \\ \hline
+IS / MOD & \texttt{is} / \texttt{mod} palabra completa & \texttt{X is 3} & \texttt{island} (es ATOMO) \\ \hline
+NO & \texttt{\textbackslash+} & \texttt{\textbackslash+ prueba(X)} & \texttt{\textbackslash} solo \\ \hline
+CORTE / PYC / COMA & \texttt{!} \texttt{;} \texttt{,} & \texttt{! ; ,} & --- \\ \hline
+DELIMS & \texttt{( ) [ ] \{ \} | .} & \texttt{( ) [ ] \{ \} | .} & --- \\ \hline
+\end{tabular}%
+}
+\caption{Catálogo de tokens del subconjunto.}
+\label{tab:tokens}
+\end{table}
+
+Decisiones: \texttt{3.14} es \texttt{REAL}; \texttt{3.} es \texttt{ENTERO+PUNTO}. \texttt{island} es \texttt{ATOMO} (palabra completa). Escapes admitidos: \texttt{\textbackslash n, \textbackslash t, \textbackslash r, \textbackslash\textbackslash, \textbackslash', \textbackslash"}. Otros como \texttt{\textbackslash q} generan error recuperable.
+
+\section{Diseño de los autómatas}
+\subsection{AFD para ATOMO y VARIABLE}
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[>=stealth, node distance=2.4cm, font=\small]
+\node[state,initial] (q0) {$q_0$};
+\node[state,accepting,right of=q0] (q1) {$q_1$: ATOMO};
+\path[->] (q0) edge node[above] {[a-z]} (q1)
+(q1) edge[loop above] node {[A-Za-z0-9\_]} (q1);
+\end{tikzpicture}%
+}
+\caption{AFD de ATOMO. $q_1$ acepta; otro carácter termina el token.}
+\end{figure}
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[>=stealth, node distance=2.4cm, font=\small]
+\node[state,initial] (q0) {$q_0$};
+\node[state,accepting,right of=q0] (q1) {$q_1$: VARIABLE};
+\path[->] (q0) edge node[above] {[A-Z\_]} (q1)
+(q1) edge[loop above] node {[A-Za-z0-9\_]} (q1);
+\end{tikzpicture}%
+}
+\caption{AFD de VARIABLE. \texttt{\_} solo es variable anónima.}
+\end{figure}
+
+\subsection{AFD para números}
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[>=stealth, node distance=2.2cm, font=\small]
+\node[state,initial] (q0) {$q_0$};
+\node[state,accepting,right of=q0] (q1) {$q_1$: ENTERO};
+\node[state,right of=q1] (q2) {$q_2$};
+\node[state,accepting,right of=q2] (q3) {$q_3$: REAL};
+\path[->] (q0) edge node[above] {[0-9]} (q1)
+(q1) edge[loop above] node {[0-9]} (q1)
+(q1) edge node[above] {.} (q2)
+(q2) edge node[above] {[0-9]} (q3)
+(q3) edge[loop above] node {[0-9]} (q3);
+\end{tikzpicture}%
+}
+\caption{AFD decimal simplificado. La implementación agrega ramas \texttt{e/E} con signo opcional y dígitos desde $q_1$ y $q_3$.}
+\end{figure}
+
+\subsection{AFD de operadores con prefijo común}
+\begin{figure}[H]
+\centering
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}[>=stealth, node distance=2.2cm, font=\scriptsize]
+\node[state,initial] (q0) {$q_0$};
+\node[state,accepting,right of=q0] (q1) {$q_1$: =};
+\node[state,accepting,above right of=q1] (q2) {$q_2$: ==};
+\node[state,below right of=q1] (q3) {$q_3$};
+\node[state,accepting,right of=q3] (q4) {$q_4$: =..};
+\node[state,accepting,below right of=q1] (q5) {$q_5$: =<};
+\path[->] (q0) edge node[above] {=} (q1)
+(q1) edge node[above] {=} (q2)
+(q1) edge node[left] {.} (q3)
+(q3) edge node[above] {.} (q4)
+(q1) edge node[left] {<} (q5);
+\end{tikzpicture}%
+}
+\caption{AFD representativo para \texttt{=, ==, =.., =<}. Si $q_1$ es aceptable pero hay continuación válida, se avanza conservando la última aceptación (máxima coincidencia).}
+\end{figure}
+
+\subsection{Determinización por construcción de subconjuntos}
+AFN representativo para \texttt{=, ==, =<, =..}: \texttt{s0--=-->s1}, \texttt{s1--$\epsilon$-->s2,s3,s4}, \texttt{s2--=-->s5}, \texttt{s3--<-->s6}, \texttt{s4--.-->s7}, \texttt{s7--.-->s8}. Aceptación: \texttt{s1:=}, \texttt{s5:==}, \texttt{s6:=<}, \texttt{s8:=..}.
+
+Cierre-$\epsilon$: \texttt{D0=\{s0\}}; con \texttt{=}: \texttt{D1=\{s1,s2,s3,s4\}}; desde \texttt{D1} con \texttt{=}: \texttt{D2=\{s5\}}; con \texttt{<}: \texttt{D3=\{s6\}}; con \texttt{.}: \texttt{D4=\{s7\}}; desde \texttt{D4} con \texttt{.}: \texttt{D5=\{s8\}}. AFD \texttt{D0...D5} sin no-determinismo, implementable por tabla.
+
+\subsection{Minimización}
+\texttt{D1=IGUAL}, \texttt{D2=IGUAL\_ESTRICTO}, \texttt{D3=MENOR\_IGUAL}, \texttt{D5=DESCOMPONE} tienen distinto atributo léxico y no pueden fusionarse si el AFD conserva la categoría. Además \texttt{D1} tiene salidas y es distinguible de terminales. Los estados sin camino a aceptación se agrupan como trampa; la implementación en vez de trampa explícita emite error léxico cuando ningún patrón aplica.
+
+\section{Reglas de prioridad y máxima coincidencia}
+Se consume el lexema más largo; a igual longitud, el orden es: comentarios $>$ literales/identificadores/números $>$ operadores compuestos por longitud $>$ un carácter $>$ delimitadores.
+
+\begin{table}[H]
+\centering
+{\small\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|p{3.2cm}|p{6.5cm}|p{4.5cm}|}
+\hline
+\textbf{Caso} & \textbf{Regla aplicada} & \textbf{Resultado} \\ \hline
+\texttt{\textbackslash==} / \texttt{\textbackslash=} / \texttt{==} & Probar \texttt{\textbackslash==} (3) antes que \texttt{\textbackslash=} (2) & \texttt{DISTINTO\_ESTRICTO} \\ \hline
+\texttt{=..} / \texttt{=} & Probar \texttt{=..} (3) antes que \texttt{==} (2) y \texttt{=} & \texttt{DESCOMPONE} \\ \hline
+\texttt{:-} / \texttt{:} & \texttt{:-} compuesto; \texttt{:} solo es error & \texttt{DOS\_PUNTOS\_GUION}; \texttt{:} $\rightarrow$ error \\ \hline
+\texttt{\_} / \texttt{\_Var} & \texttt{\_} solo es VARIABLE anónima; si sigue alfanum. es una VARIABLE & \texttt{VARIABLE} en ambos, distinto lexema \\ \hline
+\texttt{==} / \texttt{=} & Longitud 2 antes que 1 & \texttt{IGUAL\_ESTRICTO} \\ \hline
+\texttt{//}, \texttt{**} / \texttt{/}, \texttt{*} & Compuestos antes que simples & \texttt{DIV\_ENTERA, POTENCIA} \\ \hline
+\texttt{island} / \texttt{is} & Palabra completa; si hay letra extra es ATOMO & \texttt{ATOMO(island)} vs \texttt{IS} \\ \hline
+\texttt{3.} / \texttt{3.14} & Real exige dígito tras punto & \texttt{ENTERO+PUNTO} vs \texttt{REAL} \\ \hline
+\end{tabular}
+}
+\caption{Prioridades verificadas en código y tests.}
+\end{table}
+
+\section{Diseño e implementación}
+\subsection{Arquitectura de la solución}
+Archivo \texttt{lexer.py} ($\sim$370 líneas, solo \texttt{re}, \texttt{dataclasses}). Clases \texttt{Token(tipo,lexema,linea,columna,atributo)} y \texttt{ErrorLexico(mensaje,lexema,linea,columna)}. \texttt{Lexer(source)} con \texttt{skip\_layout\_and\_comments()}, \texttt{read\_quoted()}, \texttt{read\_number()}, \texttt{read\_identifier()}, bucle \texttt{run()} que prueba multi-operadores ordenados por longitud, luego \texttt{\textbackslash+}, simples y delimitadores; si nada coincide, error y avance de 1 para recuperación. \texttt{lex\_file(path)} y \texttt{main()} imprimen tokens y sección \texttt{ERRORES} con exit 1 si hay errores.
+
+\subsection{Formato de salida}
+\texttt{\textless TIPO, 'lexema', linea, columna, atributo\textgreater}. Fragmento real de \texttt{python3 lexer.py tests/valid.pl}:
+\begin{lstlisting}[language=Python]
+<ATOMO, 'padre', 2, 1, atributo=1>
+<PARENTESIS_IZQ, '(', 2, 6>
+<ATOMO, 'juan', 2, 7, atributo=2>
+<COMA, ',', 2, 11>
+<ATOMO, 'ana', 2, 13, atributo=3>
+<PARENTESIS_DER, ')', 2, 16>
+<PUNTO, '.', 2, 17>
+<ATOMO, 'abuelo', 5, 1, atributo=5>
+<VARIABLE, 'X', 5, 8, atributo=1>
+<DOS_PUNTOS_GUION, ':-', 5, 14>
+\end{lstlisting}
+
+\subsection{Tabla de lexemas}
+Tablas independientes para \texttt{ATOMO, VARIABLE, CADENA, ATOMO\_COMILLAS} (dict lexema$\rightarrow$índice desde 1). Reaparición reutiliza índice. Ejemplo: \texttt{padre:1, juan:2, ana:3, pedro:4}; variables \texttt{X:1, Z:2, Y:3}. No se resuelven ámbitos ni unificación.
+
+\section{Tratamiento de errores léxicos}
+\begin{table}[H]
+\centering
+{\small\setlength{\tabcolsep}{3pt}
+\begin{tabular}{|p{3cm}|p{3.5cm}|p{4cm}|p{4cm}|}
+\hline
+\textbf{Error} & \textbf{Ejemplo} & \textbf{Mensaje} & \textbf{Recuperación} \\ \hline
+Átomo/cadena sin cierre & \texttt{'sin cerrar} & \texttt{literal sin cierre: "'" en 6:7} & Reporta apertura, sigue en salto de línea \\ \hline
+Comentario sin cierre & \texttt{/* ...} & \texttt{comentario de bloque sin cierre} & Reporta inicio, termina análisis del resto \\ \hline
+Carácter no admitido & \texttt{@, :, ?} & \texttt{carácter no admitido} & Avanza 1 y continúa \\ \hline
+Número mal formado & \texttt{123abc, 1.2.3, 7e+} & \texttt{número mal formado} & Consume continuación alfanum., reporta, continúa \\ \hline
+Escape no admitido & \texttt{'a\textbackslash qb'} & \texttt{secuencia de escape no admitida} & Reporta, conserva char, continúa \\ \hline
+\end{tabular}
+}
+\caption{Errores con línea, columna y fragmento.}
+\end{table}
+Corrección aplicada: \texttt{REAL} seguido de \texttt{.} solo ya no es error (era bug que marcaba \texttt{3.1415.} como malformado); solo \texttt{.} + dígito o alfanum. es error. Token \texttt{\textbackslash+} unificado como \texttt{NO}.
+
+\section{Plan de pruebas y resultados}
+Corpus en \texttt{tests/corpus\_valid/} (20), \texttt{tests/corpus\_invalid/} (8), \texttt{tests/valid.pl}, \texttt{tests/invalid.pl}, \texttt{tests/test\_lexer.py}. Ejecución: \texttt{python3 tests/test\_lexer.py} $\rightarrow$ \texttt{OK}; \texttt{python3 lexer.py tests/valid.pl} exit 0; \texttt{tests/invalid.pl} exit 1 con 7 errores.
+
+\begin{table}[H]
+\centering
+\setlength{\tabcolsep}{3pt}
+\resizebox{\linewidth}{!}{%
+\begin{tabular}{|l|l|l|l|l|l|}
+\hline
+\textbf{ID} & \textbf{Entrada} & \textbf{Objetivo} & \textbf{Esperado} & \textbf{Obtenido} & \textbf{Est.} \\ \hline
+P01 & \texttt{padre(juan,ana).} & Átomo simple & \texttt{ATOMO...PUNTO} sin error & Igual & OK \\ \hline
+P02 & \texttt{X, \_Tmp, \_} & Variables & 3x \texttt{VARIABLE} & Igual & OK \\ \hline
+P03 & \texttt{3.14, 1e10, 1.2e-3.} & Reales + punto & \texttt{REAL+PUNTO} & Igual tras fix & OK \\ \hline
+P04 & \texttt{=.. == =< >= // ** :- ?-} & Máxima coincidencia & 8 compuestos & Igual & OK \\ \hline
+P05 & \texttt{\textbackslash== vs \textbackslash=} & Prioridad & Estricto vs simple & Igual & OK \\ \hline
+P06 & \texttt{'a+b', "Hola"} & Comillas/cadena & 2 literales & Igual & OK \\ \hline
+P07 & \texttt{is mod island} & Palabras op. & \texttt{IS MOD ATOMO} & Igual & OK \\ \hline
+P08 & \texttt{'sin, "sin, /* sin} & Sin cierre & 3 errores & 3 errores & OK \\ \hline
+P09 & \texttt{123abc, 1.2.3, 7e+, @} & Núm/char & 4 errores & 4 errores & OK \\ \hline
+P10 & \texttt{valid.pl / invalid.pl} & Archivos & 0 vs 7 errores & 0 vs 7 & OK \\ \hline
+\end{tabular}%
+}
+\caption{Plan de pruebas representativo. Corpus completo en repo.}
+\end{table}
+
+\subsection{Análisis de resultados}
+Se cubren todas las categorías, límites (\texttt{3. vs 3.14}, \texttt{is vs island}), prioridades y errores. Dificultad principal: \texttt{REAL+PUNTO} fin de cláusula se reportaba como malformado; se corrigió exigiendo dígito tras punto para error. Caso límite \texttt{invalid.pl}: el bloque sin cierre ocultaba errores si iba al medio; se movió al final y ahora reporta 7 errores recuperables. Limitación: \texttt{mal\_atom(ABC)} no es error léxico (\texttt{ABC} es variable) y números como \texttt{123abc.} incluyen el punto en el fragmento, aceptable como diagnóstico.
+
+\section{Conclusiones}
+Se logró un lexer que reconoce el subconjunto con posiciones y recuperación, separando léxico de sintaxis. La máxima coincidencia es esencial para compuestos y separar \texttt{+/-} de números simplifica ER. Se cumple el alcance con corpus reproducible y tests. Limitaciones: sin sintaxis/semántica, ASCII fuera de literales, sin anidamiento de bloques. Mejoras: reportes con sugerencia, resaltado, diagramas generados y linter de estilo Prolog.
+
+\section{Referencias}
+\begin{itemize}
+\item SWI-Prolog. (2024). \textit{SWI-Prolog Syntax}. \url{https://www.swi-prolog.org/pldoc/man?section=syntax}
+\item SWI-Prolog. (2024). \textit{The string type and its double quoted syntax}. \url{https://www.swi-prolog.org/pldoc/man?section=string}
+\item Aho, A. V., Lam, M. S., Sethi, R., \& Ullman, J. D. (2006). \textit{Compilers: Principles, Techniques, and Tools} (2nd ed.). Pearson.
+\item Hopcroft, J. E., Motwani, R., \& Ullman, J. D. (2006). \textit{Introduction to Automata Theory, Languages, and Computation} (3rd ed.). Pearson.
+\end{itemize}
+
+\section{Anexos}
+\begin{tabular}{|l|>{\raggedright\arraybackslash}p{10cm}|}
+\hline
+\textbf{Recurso} & \textbf{Enlace} \\ \hline
+Repositorio Git & [https://github.com/eduardoscrs/Tarea-INFO1148-C1] \\ \hline
+Código & \texttt{lexer.py}, \texttt{tests/test\_lexer.py} \\ \hline
+Corpus & \texttt{tests/corpus\_valid/*.pl (20)}, \texttt{tests/corpus\_invalid/*.pl (8)} \\ \hline
+Ejecución & \texttt{python3 lexer.py tests/valid.pl} / \texttt{python3 lexer.py tests/invalid.pl} \\ \hline
+\end{tabular}
+
+\subsection*{Anexo A. Evidencias adicionales}
+Salida de \texttt{tests/invalid.pl} (7 errores tras corrección):
+\begin{lstlisting}
+[LÉXICO 6:7] literal sin cierre: "'"
+[LÉXICO 7:6] literal sin cierre: '"'
+[LÉXICO 8:5] número mal formado: '123abc.'
+[LÉXICO 9:5] número mal formado: '1.2.3.'
+[LÉXICO 10:5] número mal formado: '7e+.'
+[LÉXICO 11:1] carácter no admitido: '@'
+[LÉXICO 13:1] comentario de bloque sin cierre
+\end{lstlisting}
+
+\end{document}
