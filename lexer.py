@@ -60,7 +60,6 @@ SINGLE_OPS = {
     "-": "MENOS",
     "*": "POR",
     "/": "DIVISION",
-    "\\+": "NO",
     "!": "CORTE",
     ";": "PUNTO_Y_COMA",
     ",": "COMA",
@@ -131,6 +130,27 @@ class Lexer:
     def consume(self, text):
         for _ in text:
             self.advance()
+
+    def format_symbol_table(self) -> str:
+        lines = []
+        for cat, table in self.symbols.items():
+            if table:
+                lines.append(f"  {cat}:")
+                for lex, idx in sorted(table.items(), key=lambda x: x[1]):
+                    lines.append(f"    [{idx}] {lex!r}")
+        if not lines:
+            return "  (tabla vacía)"
+        return "\n".join(lines)
+
+    def _is_bad_num_char(self):
+        c = self.current()
+        if not c:
+            return False
+        if c.isalnum() or c == "_":
+            return True
+        if c == "." and (self.peek().isalnum() or self.peek() == "_"):
+            return True
+        return False
 
     def add(self, tipo, lexema, line, col, attr=None):
         if tipo in self.symbols and attr is None:
@@ -241,7 +261,7 @@ class Lexer:
             # Solo es continuación inválida si es alfanumérico/_ o punto seguido de dígito (ej. 1.2.3).
             nxt = self.current()
             if nxt and (nxt.isalnum() or nxt == "_" or (nxt == "." and self.peek().isdigit())):
-                while self.current() and (self.current().isalnum() or self.current() in "._"):
+                while self._is_bad_num_char():
                     self.advance()
                 bad = self.source[start:self.i]
                 self.error("número mal formado", bad, sl, sc)
@@ -250,6 +270,7 @@ class Lexer:
             return
 
         m = INT_RE.match(self.source, self.i)
+        assert m is not None
         lex = m.group(0)
         for _ in lex: self.advance()
 
@@ -260,7 +281,7 @@ class Lexer:
             if self.current() and self.current() in "+-":
                 self.advance()
             if not self.current().isdigit():
-                while self.current() and (self.current().isalnum() or self.current() in "._+-"):
+                while self._is_bad_num_char() or (self.current() and self.current() in "+-"):
                     self.advance()
                 bad = self.source[start:self.i]
                 self.error("número mal formado", bad, sl, sc)
@@ -268,13 +289,13 @@ class Lexer:
 
         if self.current() == "." and self.peek().isdigit():
             # Esto debería haber coincidido con REAL_RE; se deja por robustez.
-            while self.current() and (self.current().isdigit() or self.current() == "."):
+            while self._is_bad_num_char():
                 self.advance()
             self.error("número mal formado", self.source[start:self.i], sl, sc)
             return
 
         if self.current() and (self.current().isalpha() or self.current() == "_"):
-            while self.current() and (self.current().isalnum() or self.current() in "._"):
+            while self._is_bad_num_char():
                 self.advance()
             self.error("número mal formado", self.source[start:self.i], sl, sc)
             return
@@ -286,6 +307,7 @@ class Lexer:
         c = self.current()
         if c.islower():
             m = ATOM_RE.match(self.source, self.i)
+            assert m is not None
             lex = m.group(0)
             for _ in lex: self.advance()
             if lex in WORD_OPS:
@@ -294,6 +316,7 @@ class Lexer:
                 self.add("ATOMO", lex, sl, sc)
         else:
             m = VAR_RE.match(self.source, self.i)
+            assert m is not None
             lex = m.group(0)
             for _ in lex: self.advance()
             self.add("VARIABLE", lex, sl, sc)
@@ -361,11 +384,14 @@ def main():
     if len(sys.argv) != 2:
         print(f"Uso: {sys.argv[0]} archivo.pl")
         raise SystemExit(2)
-    tokens, errors = lex_file(sys.argv[1])
+    lexer = Lexer(open(sys.argv[1], encoding="utf-8").read())
+    tokens, errors = lexer.run()
     for t in tokens:
         print(t)
+    print("\n--- TABLA DE LEXEMAS ---")
+    print(lexer.format_symbol_table())
     if errors:
-        print("\nERRORES:")
+        print("\n--- ERRORES LÉXICOS ---")
         for e in errors:
             print(e)
         raise SystemExit(1)
