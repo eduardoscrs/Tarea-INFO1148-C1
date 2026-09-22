@@ -94,111 +94,220 @@ Ejemplos:
 
 La estrategia equivalente en la implementación es probar primero comentarios y literales, después identificadores/números y luego los operadores compuestos ordenados por longitud, antes de operadores de un carácter.
 
-## 5. Modelado con autómatas
+## 5. Diseño y modelado con autómatas
 
-### 5.1 AFD para ATOMO
+En esta sección se modelan los elementos léxicos mediante Autómatas Finitos Deterministas (AFD) y No Deterministas (AFN), ilustrando la correspondencia directa entre los lenguajes regulares del subconjunto de Prolog y los mecanismos formales de reconocimiento.
 
-Estados:
+### 5.1 Autómata para Átomos y Variables (Figura 1)
 
-- `q0`: inicial.
-- `q1`: aceptación de ATOMO.
+Los identificadores léxicos se bifurcan a partir del carácter inicial: una letra minúscula deriva en un átomo simple, mientras que una letra mayúscula o un guion bajo `_` deriva en una variable (incluyendo la variable anónima `_` como estado de aceptación inmediato).
 
-Transiciones:
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> q0
+    q0 --> q_atom: [a-z]
+    q_atom --> q_atom: [A-Za-z0-9_]
+    q_atom --> ((ATOMO)): otro / fin
 
-| Estado | Entrada | Destino |
-|---|---|---|
-| q0 | `[a-z]` | q1 |
-| q1 | `[A-Za-z0-9_]` | q1 |
+    q0 --> q_var: [A-Z]
+    q0 --> q_anon: _
+    q_anon --> q_var: [A-Za-z0-9_]
+    q_anon --> ((VARIABLE)): otro / fin (variable anónima '_')
+    q_var --> q_var: [A-Za-z0-9_]
+    q_var --> ((VARIABLE)): otro / fin
+```
 
-`q1` es de aceptación. Si aparece otro carácter, el token termina.
+*Figura 1: Autómata para átomos no entrecomillados y variables.*
 
-### 5.2 AFD para VARIABLE
+### 5.2 Autómata para Números (Enteros y Reales) (Figura 2)
 
-| Estado | Entrada | Destino |
-|---|---|---|
-| q0 | `[A-Z_]` | q1 |
-| q1 | `[A-Za-z0-9_]` | q1 |
+El reconocimiento numérico distingue enteros y reales con punto decimal y/o notación científica con exponente (`e` o `E` con signo opcional):
 
-En este subconjunto `_` solo también es VARIABLE y representa la variable anónima.
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> q0
+    q0 --> q_int: [0-9]
+    q_int --> q_int: [0-9]
+    q_int --> ((ENTERO)): otro carácter (distinto de '.' con dígito o exponente)
 
-### 5.3 AFD para números decimales
+    q_int --> q_dot: . (si siguiente es dígito)
+    q_dot --> q_real_dec: [0-9]
+    q_real_dec --> q_real_dec: [0-9]
+    q_real_dec --> ((REAL)): fin / no exponente
 
-Para el subconjunto de enteros y reales decimales:
+    q_int --> q_exp: [eE]
+    q_real_dec --> q_exp: [eE]
+    q_exp --> q_exp_sign: [+-]
+    q_exp --> q_exp_dig: [0-9]
+    q_exp_sign --> q_exp_dig: [0-9]
+    q_exp_dig --> q_exp_dig: [0-9]
+    q_exp_dig --> ((REAL)): fin / otro
+```
 
-| Estado | Entrada | Destino |
-|---|---|---|
-| q0 | `[0-9]` | q1 |
-| q1 | `[0-9]` | q1 |
-| q1 | `.` | q2 |
-| q2 | `[0-9]` | q3 |
-| q3 | `[0-9]` | q3 |
+*Figura 2: Autómata para números enteros y reales.*
 
-`q1` acepta ENTERO y `q3` acepta REAL. Una implementación completa agrega desde `q1` y `q3` las ramas del exponente `e/E`, con signo opcional y uno o más dígitos.
-
-### 5.4 AFD de operadores con prefijo común
-
-Para demostrar la necesidad de máxima coincidencia se puede modelar:
-
-- `=` 
-- `==`
-- `=..`
-- `=<`
-
-Estados:
-
-| Estado | Entrada | Destino | Aceptación |
-|---|---|---|---|
-| q0 | `=` | q1 | no |
-| q1 | `=` | q2 | sí: `==` |
-| q1 | `.` | q3 | no, espera otro `.` |
-| q3 | `.` | q4 | sí: `=..` |
-| q1 | `<` | q5 | sí: `=<` |
-
-Para `=` solo, q1 también es de aceptación. En el lexer, si q1 es aceptable pero existe una continuación válida, se sigue avanzando y se conserva el último estado aceptable. Así se obtiene máxima coincidencia.
+---
 
 ## 6. Determinización por construcción de subconjuntos
 
-Se considera un AFN representativo para los operadores `=`, `==`, `=<` y `=..`.
+Para ilustrar de forma rigurosa la conversión de un autómata no determinista a uno determinista, se selecciona el subconjunto representativo de operadores con prefijo común:
+- `=` (`IGUAL`)
+- `==` (`IGUAL_ESTRICTO`)
+- `=<` (`MENOR_IGUAL`)
+- `=..` (`DESCOMPONE`)
 
-AFN:
+Alfabeto de entrada: $\Sigma = \{ =, <, . \}$
 
-- `s0 --=--> s1`
-- `s1 --ε--> s2`, `s1 --ε--> s3`, `s1 --ε--> s4`
-- `s2 --=--> s5`
-- `s3 --<--> s6`
-- `s4 --.--> s7`
-- `s7 --.--> s8`
+### 6.1 Especificación del AFN con transiciones-$\varepsilon$
 
-Los estados de aceptación representan:
+Sea el AFN $M = (S, \Sigma, \delta_N, s_0, F)$ donde:
+- $S = \{s_0, s_1, s_2, s_3, s_4, s_5, s_6, s_7, s_8\}$
+- Estado inicial: $s_0$
+- Estados de aceptación:
+  - $s_1 \rightarrow \text{token } \texttt{IGUAL}$
+  - $s_5 \rightarrow \text{token } \texttt{IGUAL\_ESTRICTO}$
+  - $s_6 \rightarrow \text{token } \texttt{MENOR\_IGUAL}$
+  - $s_8 \rightarrow \text{token } \texttt{DESCOMPONE}$
 
-- `s1`: `=`
-- `s5`: `==`
-- `s6`: `=<`
-- `s8`: `=..`
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> s0
+    s0 --> s1: '='
+    s1 --> s2: ε
+    s1 --> s3: ε
+    s1 --> s4: ε
+    s2 --> s5: '='
+    s3 --> s6: '<'
+    s4 --> s7: '.'
+    s7 --> s8: '.'
 
-Aplicando cierre-ε:
+    classDef accept fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    class s1,s5,s6,s8 accept;
+```
 
-- `D0 = ε-closure({s0}) = {s0}`
-- con `=`: `D1 = {s1,s2,s3,s4}`
-- desde `D1` con `=`: `D2 = {s5}`
-- desde `D1` con `<`: `D3 = {s6}`
-- desde `D1` con `.`: `D4 = {s7}`
-- desde `D4` con `.`: `D5 = {s8}`
+*Figura 3: AFN con transiciones $\varepsilon$ para operadores con prefijo común.*
 
-El AFD resultante tiene los estados `D0...D5`. El procedimiento elimina la no determinación del AFN y permite implementar la misma decisión mediante una tabla de transición.
+#### Tabla de transiciones del AFN ($\delta_N$):
 
-## 7. Minimización
+| Estado | $=$ | $<$ | $.$ | $\varepsilon$ | Aceptación / Token |
+|---|---|---|---|---|---|
+| $s_0$ | $\{s_1\}$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | No |
+| $s_1$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | $\{s_2, s_3, s_4\}$ | **Sí**: `IGUAL` |
+| $s_2$ | $\{s_5\}$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | No |
+| $s_3$ | $\emptyset$ | $\{s_6\}$ | $\emptyset$ | $\emptyset$ | No |
+| $s_4$ | $\emptyset$ | $\emptyset$ | $\{s_7\}$ | $\emptyset$ | No |
+| $s_5$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | **Sí**: `IGUAL_ESTRICTO` |
+| $s_6$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | **Sí**: `MENOR_IGUAL` |
+| $s_7$ | $\emptyset$ | $\emptyset$ | $\{s_8\}$ | $\emptyset$ | No |
+| $s_8$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | **Sí**: `DESCOMPONE` |
 
-Para el ejemplo anterior, los estados de aceptación tienen distintos atributos léxicos:
+### 6.2 Procedimiento de Construcción de Subconjuntos
 
-- `D1` = `IGUAL`
-- `D2` = `IGUAL_ESTRICTO`
-- `D3` = `MENOR_IGUAL`
-- `D5` = `DESCOMPONE`
+Se calculan las clausuras $\varepsilon$ ($\varepsilon\text{-closure}$) y las transiciones $\text{move}(D, a)$:
 
-Por tanto, no pueden fusionarse si el AFD debe conservar la categoría del token. Además, `D1` tiene transiciones salientes y por ello es distinguible de los estados terminales.
+1. **Estado inicial $D_0$:**
+   $$D_0 = \varepsilon\text{-closure}(\{s_0\}) = \{s_0\}$$
+   - $\text{move}(D_0, =) = \{s_1\} \implies \varepsilon\text{-closure}(\{s_1\}) = \{s_1, s_2, s_3, s_4\} = D_1$
+   - $\text{move}(D_0, <) = \emptyset$
+   - $\text{move}(D_0, .) = \emptyset$
 
-Los estados que no tienen una transición posible hacia una aceptación pueden agruparse como estado trampa en un AFD tradicional. En la implementación, en lugar de almacenar explícitamente un estado trampa global, se genera un error léxico cuando ningún patrón aplica.
+2. **Estado $D_1 = \{s_1, s_2, s_3, s_4\}$:**
+   - Contiene el estado final $s_1$, por lo que acepta el token **`IGUAL`**.
+   - $\text{move}(D_1, =) = \{s_5\} \implies \varepsilon\text{-closure}(\{s_5\}) = \{s_5\} = D_2$
+   - $\text{move}(D_1, <) = \{s_6\} \implies \varepsilon\text{-closure}(\{s_6\}) = \{s_6\} = D_3$
+   - $\text{move}(D_1, .) = \{s_7\} \implies \varepsilon\text{-closure}(\{s_7\}) = \{s_7\} = D_4$
+
+3. **Estado $D_2 = \{s_5\}$:**
+   - Contiene el estado final $s_5$, por lo que acepta el token **`IGUAL_ESTRICTO`**.
+   - Transiciones para $\{=, <, .\}$: todas son $\emptyset$.
+
+4. **Estado $D_3 = \{s_6\}$:**
+   - Contiene el estado final $s_6$, por lo que acepta el token **`MENOR_IGUAL`**.
+   - Transiciones para $\{=, <, .\}$: todas son $\emptyset$.
+
+5. **Estado $D_4 = \{s_7\}$:**
+   - Estado no final (espera segundo punto).
+   - $\text{move}(D_4, =) = \emptyset$
+   - $\text{move}(D_4, <) = \emptyset$
+   - $\text{move}(D_4, .) = \{s_8\} \implies \varepsilon\text{-closure}(\{s_8\}) = \{s_8\} = D_5$
+
+6. **Estado $D_5 = \{s_8\}$:**
+   - Contiene el estado final $s_8$, por lo que acepta el token **`DESCOMPONE`**.
+   - Transiciones para $\{=, <, .\}$: todas son $\emptyset$.
+
+#### Tabla de transición del AFD resultante ($\delta_D$):
+
+| Estado AFD | Composición AFN | Entrada $=$ | Entrada $<$ | Entrada $.$ | Token emitido |
+|---|---|---|---|---|---|
+| $D_0$ | $\{s_0\}$ | $D_1$ | $\emptyset$ | $\emptyset$ | — |
+| $D_1$ | $\{s_1, s_2, s_3, s_4\}$ | $D_2$ | $D_3$ | $D_4$ | **`IGUAL`** |
+| $D_2$ | $\{s_5\}$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | **`IGUAL_ESTRICTO`** |
+| $D_3$ | $\{s_6\}$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | **`MENOR_IGUAL`** |
+| $D_4$ | $\{s_7\}$ | $\emptyset$ | $\emptyset$ | $D_5$ | — |
+| $D_5$ | $\{s_8\}$ | $\emptyset$ | $\emptyset$ | $\emptyset$ | **`DESCOMPONE`** |
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> D0
+    D0 --> D1: '='
+    D1 --> D2: '='
+    D1 --> D3: '<'
+    D1 --> D4: '.'
+    D4 --> D5: '.'
+
+    classDef accept fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    class D1,D2,D3,D5 accept;
+```
+
+*Figura 4: AFD representativo obtenido mediante construcción de subconjuntos.*
+
+---
+
+## 7. Minimización y justificación de estados equivalentes
+
+Para demostrar si el AFD obtenido es mínimo, se aplica el **algoritmo de particionamiento de Moore / Hopcroft**.
+
+### 7.1 Criterio de partición inicial ($\Pi_0$)
+
+En autómatas para análisis léxico, los estados finales no pueden considerarse idénticos si reconocen categorías de tokens distintas, ya que emitir un tipo léxico u otro altera la semántica del compilador. Por lo tanto, los estados se dividen inicialmente según su clase de aceptación:
+
+$$\Pi_0 = \{ G_{\text{no-final}}, G_{\text{IGUAL}}, G_{\text{IGUAL\_ESTRICTO}}, G_{\text{MENOR\_IGUAL}}, G_{\text{DESCOMPONE}} \}$$
+
+Donde:
+- $G_{\text{no-final}} = \{D_0, D_4\}$
+- $G_{\text{IGUAL}} = \{D_1\}$
+- $G_{\text{IGUAL\_ESTRICTO}} = \{D_2\}$
+- $G_{\text{MENOR\_IGUAL}} = \{D_3\}$
+- $G_{\text{DESCOMPONE}} = \{D_5\}$
+
+### 7.2 Análisis de distinguibilidad de estados no finales ($D_0$ y $D_4$)
+
+Los únicos candidatos a ser equivalentes y fusionables son $D_0$ y $D_4$, pertenecientes a $G_{\text{no-final}}$:
+
+1. **Bajo el símbolo entrada $=$:**
+   - $\delta_D(D_0, =) = D_1 \in G_{\text{IGUAL}}$
+   - $\delta_D(D_4, =) = \emptyset$ (estado de rechazo / trampa)
+   
+   Dado que $D_1$ pertenece a un grupo distinto del estado de rechazo, existe una entrada ($=$) que produce salidas distinguibles entre $D_0$ y $D_4$.
+
+2. **Bajo el símbolo entrada $. $:**
+   - $\delta_D(D_0, .) = \emptyset$
+   - $\delta_D(D_4, .) = D_5 \in G_{\text{DESCOMPONE}}$
+
+Por tanto, $D_0$ y $D_4$ son **distinguibles de orden 1**. La partición se refina a:
+
+$$\Pi_1 = \{ \{D_0\}, \{D_4\}, \{D_1\}, \{D_2\}, \{D_3\}, \{D_5\} \}$$
+
+### 7.3 Conclusión de minimalidad
+
+Dado que cada grupo en $\Pi_1$ es un conjunto unitario (singleton):
+$$|\Pi_1| = |S_{\text{AFD}}| = 6$$
+
+No existen estados redundantes ni equivalentes. El AFD obtenido por el método de subconjuntos ya es el **AFD mínimo irreducible** que reconoce el conjunto representativo con máxima coincidencia. Si se añade un estado trampa explícito $D_{\text{error}}$ para transiciones no definidas, dicho estado absorbe las entradas inválidas sin alterar la minimalidad de los estados activos.
 
 ## 8. Diseño del lexer
 
